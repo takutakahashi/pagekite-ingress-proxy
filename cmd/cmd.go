@@ -8,7 +8,7 @@ import (
 
 func main() {
 	pk := pagekite.NewPageKite()
-	go pk.StartObserver()
+	go pk.Start()
 	<-pk.Stop
 	os.Exit(0)
 }
