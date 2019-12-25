@@ -3,18 +3,21 @@ package types
 type PageKiteConfig struct {
 	Name   string
 	Secret string
+	Load   func()
 }
 
 type PageKiteIngress struct {
 	Ingress string
 }
 
-type PageKite struct {
-	Config  PageKiteConfig
-	Ingress PageKiteIngress
+func (pki *PageKiteIngress) Add(obj interface{}) {
+
 }
 
-func NewPageKite() PageKite {
-	pk := PageKite{}
-	return pk
+func (pki *PageKiteIngress) Delete(obj interface{}) {
+
+}
+
+func (pki *PageKiteIngress) Update(old, new interface{}) {
+
 }
