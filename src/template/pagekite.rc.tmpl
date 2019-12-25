@@ -1,22 +1,18 @@
-###[ Current settings for pagekite.py v1.0.0.190225. ]#########
-#
-## NOTE: This file may be rewritten/reordered by pagekite.py.
-#
-
-##[ Default kite and account details ]##
-kitename   = {{ .Kite.Name }}
-kitesecret = {{ .Kite.Secret }}
+kitename   = {{ .C.Name }}
+kitesecret = {{ .C.Secret }}
 
 ##[ Front-end settings: use pagekite.net defaults ]##
 defaults
 
 ##[ Back-ends and local services ]##
-service_on  = http:@kitename                   : localhost:1000    : @kitesecret
 
-
-
-
-
+{{- range $index, $ingress := .I.Resources }}
+## {{ $ingress.Name }} start ##
+{{- range $index, $rules := $ingress.Spec.Rules }}
+service_on  = http:@kitename                   : {{ $rules }}:1000    : @kitesecret
+{{- end }}
+## {{ $ingress.Name }} end ##
+{{- end }}
 ##[ Miscellaneous settings ]##
 savefile = /root/.pagekite.rc
 
