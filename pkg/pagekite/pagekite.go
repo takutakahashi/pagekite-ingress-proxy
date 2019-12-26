@@ -7,21 +7,20 @@ import (
 	"path/filepath"
 
 	"github.com/takutakahashi/pagekite-ingress-controller/pkg/pagekite/types"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
-	cextv1beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
+	ccorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 type PageKite struct {
-	Config        types.PageKiteConfig
-	Ingress       types.PageKiteIngress
-	IngressClient cextv1beta1.IngressInterface
-	Stop          chan struct{}
-	Reload        chan struct{}
+	Config types.PageKiteConfig
+	Client ccorev1.ServiceInterface
+	Stop   chan struct{}
+	Reload chan struct{}
 }
 
 func NewPageKite() PageKite {
@@ -51,11 +50,10 @@ func NewPageKite() PageKite {
 		panic(err)
 	}
 	pk := PageKite{
-		Config:        types.PageKiteConfig{Name: kitename, Secret: kitesecret},
-		Ingress:       types.NewPageKiteIngress(),
-		Stop:          make(chan struct{}),
-		Reload:        make(chan struct{}),
-		IngressClient: clientset.ExtensionsV1beta1().Ingresses(namespace),
+		Config: types.PageKiteConfig{Name: kitename, Secret: kitesecret},
+		Client: clientset.CoreV1().Services(namespace),
+		Stop:   make(chan struct{}),
+		Reload: make(chan struct{}),
 	}
 	return pk
 }
@@ -67,19 +65,21 @@ func (pk *PageKite) Start() error {
 }
 
 func (pk *PageKite) initProcess() {
-	ingressList, err := pk.IngressClient.List(metav1.ListOptions{})
+	svcList, err := pk.Client.List(metav1.ListOptions{})
 	if err != nil {
 		panic(err)
 	}
-	for _, ing := range ingressList.Items {
-		pk.Ingress.Add(&ing)
+	for _, svc := range svcList.Items {
+		// TODO: detect ingress controller svc
+		fmt.Println(svc.Name)
+		pk.Config.ControllerService = svc
 	}
 	pk.generateConfig()
 	pk.reloadProcess()
 }
 
 func (pk *PageKite) generateConfig() bool {
-	config := pk.Config.GenerateConfig(pk.Ingress)
+	config := pk.Config.GenerateConfig()
 	fmt.Println(config)
 	hasDiff := config != pk.Config.Cache
 	pk.Config.Cache = config
@@ -88,27 +88,25 @@ func (pk *PageKite) generateConfig() bool {
 }
 
 func (pk *PageKite) startObserver() error {
-	ingressStreamWatcher, err := pk.IngressClient.Watch(metav1.ListOptions{})
+	svcStreamWatcher, err := pk.Client.Watch(metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
 	for {
 		select {
-		case event := <-ingressStreamWatcher.ResultChan():
-			ingress := event.Object.(*extv1beta1.Ingress)
-			pk.update(event.Type, ingress)
+		case event := <-svcStreamWatcher.ResultChan():
+			svc := event.Object.(*v1.Service)
+			pk.update(event.Type, svc)
 		}
 	}
 }
 
-func (pk *PageKite) update(eventType watch.EventType, ingress *extv1beta1.Ingress) {
+func (pk *PageKite) update(eventType watch.EventType, svc *v1.Service) {
 	switch eventType {
 	case watch.Added:
-		pk.Ingress.Add(ingress)
+		pk.Config.ControllerService = *svc
 	case watch.Modified:
-		pk.Ingress.Update(ingress)
-	case watch.Deleted:
-		pk.Ingress.Delete(ingress)
+		pk.Config.ControllerService = *svc
 	}
 	hasDiff := pk.generateConfig()
 	if hasDiff {

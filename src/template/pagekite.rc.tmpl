@@ -6,13 +6,7 @@ defaults
 
 ##[ Back-ends and local services ]##
 
-{{- range $index, $ingress := .I.Resources }}
-## {{ $ingress.Name }} start ##
-{{- range $index, $rules := $ingress.Spec.Rules }}
-service_on  = http:@kitename                   : {{ $rules }}:1000    : @kitesecret
-{{- end }}
-## {{ $ingress.Name }} end ##
-{{- end }}
+service_on  = http:@kitename                   : {{ .S.Name }}.{{ .S.Namespace }}.svc.cluster.local:{{ .S.TargetPort }}    : @kitesecret
 ##[ Miscellaneous settings ]##
 savefile = /root/.pagekite.rc
 
