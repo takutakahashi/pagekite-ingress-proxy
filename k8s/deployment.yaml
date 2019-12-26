@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: proxy
+  name: pagekite-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxy
+  template:
+    metadata:
+      labels:
+        app: proxy
+    spec:
+      serviceAccountName: pagekite-proxy
+      containers:
+      - image: takutakahashi/pagekite-ingress-proxy
+        command:
+          - /pk-ingress-controller
+        envFrom:
+        - secretRef:
+            name: pagekite-secret
+        imagePullPolicy: Always
+        name: proxy
