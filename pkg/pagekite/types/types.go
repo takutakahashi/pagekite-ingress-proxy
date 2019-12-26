@@ -9,10 +9,11 @@ import (
 )
 
 type PageKiteConfig struct {
-	Name              string
-	Secret            string
-	Cache             string
-	ControllerService v1.Service
+	Name                  string
+	Secret                string
+	Cache                 string
+	ControllerService     v1.Service
+	ControllerServiceName string
 }
 
 func (pkc *PageKiteConfig) GenerateConfig() string {

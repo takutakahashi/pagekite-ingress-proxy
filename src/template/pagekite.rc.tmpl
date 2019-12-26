@@ -6,7 +6,7 @@ defaults
 
 ##[ Back-ends and local services ]##
 
-service_on  = http:@kitename                   : {{ .S.Name }}.{{ .S.Namespace }}.svc.cluster.local:{{ .S.TargetPort }}    : @kitesecret
+service_on  = http:@kitename                   : {{ .S.Name }}.{{ .S.Namespace }}.svc.cluster.local:{{ .S.Name }}    : @kitesecret
 ##[ Miscellaneous settings ]##
 savefile = /root/.pagekite.rc
 
