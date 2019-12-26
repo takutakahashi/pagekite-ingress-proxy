@@ -52,7 +52,6 @@ func NewPageKite() PageKite {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(namespace)
 	pk := PageKite{
 		Config: types.PageKiteConfig{
 			Name:                  kitename,
@@ -85,6 +84,7 @@ func (pk *PageKite) generateConfig() bool {
 }
 
 func (pk *PageKite) startObserver() error {
+	fmt.Println(pk.Client)
 	svcStreamWatcher, err := pk.Client.Watch(metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
