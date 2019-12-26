@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	ccorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -40,15 +41,13 @@ func NewPageKite() PageKite {
 	flag.Parse()
 
 	// use the current context in kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
-	if err != nil {
-		panic(err.Error())
+	config, err := rest.InClusterConfig()
+	if config == nil {
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
+		if err != nil {
+			panic(err)
+		}
 	}
-
-	//	config, err = rest.InClusterConfig()
-	//	if err != nil {
-	//		panic(err)
-	//	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		panic(err)
