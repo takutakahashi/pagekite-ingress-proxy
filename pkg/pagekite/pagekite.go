@@ -1,27 +1,30 @@
 package pagekite
 
 import (
+	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/takutakahashi/pagekite-ingress-controller/pkg/pagekite/types"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
-	cextv1beta1 "k8s.io/client-go/kubernetes/typed/extensions/v1beta1"
+	ccorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 type PageKite struct {
-	Config        types.PageKiteConfig
-	Ingress       types.PageKiteIngress
-	IngressClient cextv1beta1.IngressInterface
-	Stop          chan struct{}
-	Reload        chan struct{}
+	Config types.PageKiteConfig
+	Client ccorev1.ServiceInterface
+	Stop   chan struct{}
+	Reload chan struct{}
 }
 
 func NewPageKite() PageKite {
@@ -31,85 +34,74 @@ func NewPageKite() PageKite {
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
-	namespace := *flag.String("namespace", "", "(optional) specify target namespace to watch resource")
+	namespace := *flag.String("namespace", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "specify target namespace to watch resource")
 	kitename := *flag.String("kitename", os.Getenv("PAGEKITE_NAME"), "kitename")
 	kitesecret := *flag.String("kitesecret", os.Getenv("PAGEKITE_SECRET"), "kitesecret")
+	controllerService := *flag.String("ingress-controller-service-name", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "ingress svc")
 	flag.Parse()
 
 	// use the current context in kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
-	if err != nil {
-		panic(err.Error())
+	config, err := rest.InClusterConfig()
+	if config == nil {
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
+		if err != nil {
+			panic(err)
+		}
 	}
-
-	//	config, err = rest.InClusterConfig()
-	//	if err != nil {
-	//		panic(err)
-	//	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println(namespace)
 	pk := PageKite{
-		Config:        types.PageKiteConfig{Name: kitename, Secret: kitesecret},
-		Ingress:       types.NewPageKiteIngress(),
-		Stop:          make(chan struct{}),
-		Reload:        make(chan struct{}),
-		IngressClient: clientset.ExtensionsV1beta1().Ingresses(namespace),
+		Config: types.PageKiteConfig{
+			Name:                  kitename,
+			Secret:                kitesecret,
+			ControllerServiceName: controllerService,
+		},
+		Client: clientset.CoreV1().Services(namespace),
+		Stop:   make(chan struct{}),
+		Reload: make(chan struct{}),
 	}
 	return pk
 }
 
 func (pk *PageKite) Start() error {
-	pk.initProcess()
 	pk.startObserver()
 	return nil
 }
 
-func (pk *PageKite) initProcess() {
-	ingressList, err := pk.IngressClient.List(metav1.ListOptions{})
-	if err != nil {
-		panic(err)
-	}
-	for _, ing := range ingressList.Items {
-		pk.Ingress.Add(&ing)
-	}
-	pk.generateConfig()
-	pk.reloadProcess()
-}
-
 func (pk *PageKite) generateConfig() bool {
-	config := pk.Config.GenerateConfig(pk.Ingress)
-	fmt.Println(config)
-	hasDiff := config != pk.Config.Cache
+	config := pk.Config.GenerateConfig()
+	hasDiff := !bytes.Equal(config, pk.Config.Cache)
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		homedir = "/tmp"
+	}
+	ioutil.WriteFile(homedir+"/.pagekite.rc", config, 0644)
 	pk.Config.Cache = config
 	return hasDiff
 
 }
 
 func (pk *PageKite) startObserver() error {
-	ingressStreamWatcher, err := pk.IngressClient.Watch(metav1.ListOptions{})
+	svcStreamWatcher, err := pk.Client.Watch(metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
 	for {
 		select {
-		case event := <-ingressStreamWatcher.ResultChan():
-			ingress := event.Object.(*extv1beta1.Ingress)
-			pk.update(event.Type, ingress)
+		case event := <-svcStreamWatcher.ResultChan():
+			svc := event.Object.(*v1.Service)
+			if svc.Name == pk.Config.ControllerServiceName {
+				pk.update(svc)
+			}
 		}
 	}
 }
 
-func (pk *PageKite) update(eventType watch.EventType, ingress *extv1beta1.Ingress) {
-	switch eventType {
-	case watch.Added:
-		pk.Ingress.Add(ingress)
-	case watch.Modified:
-		pk.Ingress.Update(ingress)
-	case watch.Deleted:
-		pk.Ingress.Delete(ingress)
-	}
+func (pk *PageKite) update(svc *v1.Service) {
+	pk.Config.ControllerService = *svc
 	hasDiff := pk.generateConfig()
 	if hasDiff {
 		pk.reloadProcess()
@@ -117,7 +109,31 @@ func (pk *PageKite) update(eventType watch.EventType, ingress *extv1beta1.Ingres
 }
 
 func (pk *PageKite) reloadProcess() {
-	fmt.Println("TODO: reload")
+	buf, err := ioutil.ReadFile("/tmp/pagekite.pid")
+	if err == nil {
+		var pid int
+		r := bytes.NewReader(buf)
+		binary.Read(r, binary.LittleEndian, &pid)
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			fmt.Println(err)
+		}
+		process.Kill()
+	}
+	cmd := exec.Command("pagekite.py")
+	out, err := cmd.Output()
+	fmt.Println(out)
+	pid := cmd.Process.Pid
+	f, err := os.Create("/tmp/pagekite.pid")
+	if err != nil {
+		fmt.Printf("error creating file: %v", err)
+		return
+	}
+	defer f.Close()
+	_, err = f.WriteString(fmt.Sprintf("%d\n", pid))
+	if err != nil {
+		fmt.Printf("error writing string: %v", err)
+	}
 }
 
 func homeDir() string {

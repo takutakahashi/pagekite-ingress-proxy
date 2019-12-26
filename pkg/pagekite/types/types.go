@@ -2,59 +2,35 @@ package types
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 
 	"github.com/leekchan/gtf"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
-	"k8s.io/apimachinery/pkg/types"
+	v1 "k8s.io/api/core/v1"
 )
 
 type PageKiteConfig struct {
-	Name   string
-	Secret string
-	Cache  string
+	Name                  string
+	Secret                string
+	Cache                 []byte
+	ControllerService     v1.Service
+	ControllerServiceName string
 }
 
-type PageKiteIngress struct {
-	Resources map[types.UID]*extv1beta1.Ingress
-}
-
-func (pkc *PageKiteConfig) GenerateConfig(pki PageKiteIngress) string {
+func (pkc *PageKiteConfig) GenerateConfig() []byte {
 	tmpl, err := gtf.New("pagekite.rc.tmpl").ParseFiles("src/template/pagekite.rc.tmpl")
 	if err != nil {
 		log.Println(err)
-		return ""
+		return []byte{}
 	}
 	var buf bytes.Buffer
 	type pkset struct {
-		I PageKiteIngress
 		C PageKiteConfig
+		S v1.Service
 	}
-	err = tmpl.Execute(&buf, pkset{I: pki, C: *pkc})
+	err = tmpl.Execute(&buf, pkset{C: *pkc, S: pkc.ControllerService})
 	if err != nil {
 		log.Println(err)
-		return ""
+		return []byte{}
 	}
-	return buf.String()
-}
-
-func (pki *PageKiteIngress) Add(ingress *extv1beta1.Ingress) {
-	pki.Resources[ingress.GetUID()] = ingress
-	fmt.Println("add:", len(pki.Resources))
-}
-func (pki *PageKiteIngress) Update(ingress *extv1beta1.Ingress) {
-	pki.Resources[ingress.GetUID()] = ingress
-	fmt.Println("update:", len(pki.Resources))
-}
-func (pki *PageKiteIngress) Delete(ingress *extv1beta1.Ingress) {
-	delete(pki.Resources, ingress.GetUID())
-	fmt.Println("delete:", len(pki.Resources))
-}
-
-func NewPageKiteIngress() PageKiteIngress {
-	return PageKiteIngress{Resources: make(map[types.UID]*extv1beta1.Ingress)}
-}
-func NewPageKiteConfig() PageKiteConfig {
-	return PageKiteConfig{}
+	return buf.Bytes()
 }
