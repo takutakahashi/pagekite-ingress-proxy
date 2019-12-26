@@ -84,7 +84,6 @@ func (pk *PageKite) generateConfig() bool {
 }
 
 func (pk *PageKite) startObserver() error {
-	fmt.Println(pk.Client)
 	svcStreamWatcher, err := pk.Client.Watch(metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
@@ -98,6 +97,7 @@ func (pk *PageKite) startObserver() error {
 			}
 		}
 	}
+	return nil
 }
 
 func (pk *PageKite) update(svc *v1.Service) {
