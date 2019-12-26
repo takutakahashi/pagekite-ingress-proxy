@@ -29,10 +29,10 @@ func NewPageKite() PageKite {
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
-	namespace := *flag.String("namespace", "ingress-nginx", "specify target namespace to watch resource")
+	namespace := *flag.String("namespace", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "specify target namespace to watch resource")
 	kitename := *flag.String("kitename", os.Getenv("PAGEKITE_NAME"), "kitename")
 	kitesecret := *flag.String("kitesecret", os.Getenv("PAGEKITE_SECRET"), "kitesecret")
-	controllerService := *flag.String("ingress-controller-service-name", os.Getenv("PAGEKITE_INGRESS_SERVICE"), "ingress svc")
+	controllerService := *flag.String("ingress-controller-service-name", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "ingress svc")
 	flag.Parse()
 
 	// use the current context in kubeconfig
@@ -60,6 +60,7 @@ func NewPageKite() PageKite {
 		Stop:   make(chan struct{}),
 		Reload: make(chan struct{}),
 	}
+	fmt.Println(controllerService)
 	return pk
 }
 
@@ -87,7 +88,6 @@ func (pk *PageKite) startObserver() error {
 		case event := <-svcStreamWatcher.ResultChan():
 			svc := event.Object.(*v1.Service)
 			if svc.Name == pk.Config.ControllerServiceName {
-				fmt.Println("ok!!!!!")
 				pk.update(svc)
 			}
 		}

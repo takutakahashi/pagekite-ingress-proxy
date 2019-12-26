@@ -5,8 +5,18 @@ kitesecret = {{ .C.Secret }}
 defaults
 
 ##[ Back-ends and local services ]##
-
-service_on  = http:@kitename                   : {{ .S.Name }}.{{ .S.Namespace }}.svc.cluster.local:{{ .S.Name }}    : @kitesecret
+{{- $s := .S }}
+{{- range $index, $port := .S.Spec.Ports }}
+{{- if eq $port.TargetPort.StrVal "http" }}
+service_on  = http:@kitename                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:80    : @kitesecret
+{{- end }}
+{{- if eq $port.TargetPort.StrVal "https" }}
+service_on  = https:@kitename                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:443    : @kitesecret
+{{- end }}
+{{- if not $port.TargetPort.StrVal }}
+service_on  = http:@kitename                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:{{ $port.TargetPort.IntVal }}    : @kitesecret
+{{- end }}
+{{- end }}
 ##[ Miscellaneous settings ]##
 savefile = /root/.pagekite.rc
 
