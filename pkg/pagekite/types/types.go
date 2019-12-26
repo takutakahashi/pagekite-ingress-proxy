@@ -11,16 +11,16 @@ import (
 type PageKiteConfig struct {
 	Name                  string
 	Secret                string
-	Cache                 string
+	Cache                 []byte
 	ControllerService     v1.Service
 	ControllerServiceName string
 }
 
-func (pkc *PageKiteConfig) GenerateConfig() string {
+func (pkc *PageKiteConfig) GenerateConfig() []byte {
 	tmpl, err := gtf.New("pagekite.rc.tmpl").ParseFiles("src/template/pagekite.rc.tmpl")
 	if err != nil {
 		log.Println(err)
-		return ""
+		return []byte{}
 	}
 	var buf bytes.Buffer
 	type pkset struct {
@@ -30,7 +30,7 @@ func (pkc *PageKiteConfig) GenerateConfig() string {
 	err = tmpl.Execute(&buf, pkset{C: *pkc, S: pkc.ControllerService})
 	if err != nil {
 		log.Println(err)
-		return ""
+		return []byte{}
 	}
-	return buf.String()
+	return buf.Bytes()
 }

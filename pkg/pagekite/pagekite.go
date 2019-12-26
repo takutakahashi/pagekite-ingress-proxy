@@ -1,9 +1,13 @@
 package pagekite
 
 import (
+	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/takutakahashi/pagekite-ingress-controller/pkg/pagekite/types"
@@ -60,7 +64,6 @@ func NewPageKite() PageKite {
 		Stop:   make(chan struct{}),
 		Reload: make(chan struct{}),
 	}
-	fmt.Println(controllerService)
 	return pk
 }
 
@@ -71,8 +74,12 @@ func (pk *PageKite) Start() error {
 
 func (pk *PageKite) generateConfig() bool {
 	config := pk.Config.GenerateConfig()
-	fmt.Println(config)
-	hasDiff := config != pk.Config.Cache
+	hasDiff := !bytes.Equal(config, pk.Config.Cache)
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		homedir = "/tmp"
+	}
+	ioutil.WriteFile(homedir+"/.pagekite.rc", config, 0644)
 	pk.Config.Cache = config
 	return hasDiff
 
@@ -103,7 +110,31 @@ func (pk *PageKite) update(svc *v1.Service) {
 }
 
 func (pk *PageKite) reloadProcess() {
-	fmt.Println("TODO: reload")
+	buf, err := ioutil.ReadFile("/tmp/pagekite.pid")
+	if err == nil {
+		var pid int
+		r := bytes.NewReader(buf)
+		binary.Read(r, binary.LittleEndian, &pid)
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			fmt.Println(err)
+		}
+		process.Kill()
+	}
+	cmd := exec.Command("pagekite.py")
+	out, err := cmd.Output()
+	fmt.Println(out)
+	pid := cmd.Process.Pid
+	f, err := os.Create("/tmp/pagekite.pid")
+	if err != nil {
+		fmt.Printf("error creating file: %v", err)
+		return
+	}
+	defer f.Close()
+	_, err = f.WriteString(fmt.Sprintf("%d\n", pid))
+	if err != nil {
+		fmt.Printf("error writing string: %v", err)
+	}
 }
 
 func homeDir() string {
