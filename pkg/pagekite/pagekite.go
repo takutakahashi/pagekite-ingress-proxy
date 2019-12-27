@@ -12,6 +12,7 @@ import (
 
 	"github.com/takutakahashi/pagekite-ingress-controller/pkg/pagekite/types"
 	v1 "k8s.io/api/core/v1"
+	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -93,25 +94,59 @@ func (pk *PageKite) generateConfig() bool {
 
 func (pk *PageKite) startObserver() error {
 	// TODO: observe svc and ing
+	go pk.watchIngress()
+	go pk.watchService()
+	<-pk.Stop
+	return nil
+}
+
+func (pk *PageKite) watchService() {
 	ns := pk.Config.Resource.IngressControllerService.Namespace
-	svcStreamWatcher, err := pk.Client.CoreV1().Services(ns).Watch(metav1.ListOptions{})
+	streamWatcher, err := pk.Client.CoreV1().Services(ns).Watch(metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
 	for {
 		select {
-		case event := <-svcStreamWatcher.ResultChan():
+		case event := <-streamWatcher.ResultChan():
 			svc := event.Object.(*v1.Service)
 			if svc.Name == pk.Config.Resource.IngressControllerService.Name {
-				pk.update(svc)
+				pk.update(svc, nil)
 			}
 		}
 	}
+
 }
 
-func (pk *PageKite) update(svc *v1.Service) {
-	pk.Config.Resource.IngressControllerService = *svc
+func (pk *PageKite) watchIngress() {
+	ns := ""
+	ingressClient := pk.Client.ExtensionsV1beta1().Ingresses(ns)
+	streamWatcher, err := ingressClient.Watch(metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	for {
+		select {
+		case <-streamWatcher.ResultChan():
+			res, err := ingressClient.List(metav1.ListOptions{})
+			if err != nil {
+				panic(err.Error())
+			}
+			pk.update(nil, res.Items)
+		}
+	}
+
+}
+
+func (pk *PageKite) update(svc *v1.Service, ingresses []extv1beta1.Ingress) {
+	if svc != nil {
+		pk.Config.Resource.IngressControllerService = *svc
+	}
+	if ingresses != nil {
+		pk.Config.Resource.Ingresses = ingresses
+	}
 	hasDiff := pk.generateConfig()
+	fmt.Println("diff? ", hasDiff)
 	if hasDiff {
 		pk.reloadProcess()
 	}

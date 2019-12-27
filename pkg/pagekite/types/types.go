@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 
 	"github.com/leekchan/gtf"
@@ -29,10 +30,25 @@ func (pkc *PageKiteConfig) GenerateConfig() []byte {
 	}
 	var buf bytes.Buffer
 	type pkset struct {
-		C PageKiteConfig
-		S v1.Service
+		C  PageKiteConfig
+		S  v1.Service
+		Hs []string
 	}
-	err = tmpl.Execute(&buf, pkset{C: *pkc, S: pkc.Resource.IngressControllerService})
+	hostMap := make(map[string]struct{})
+	v := struct{}{}
+	for _, ing := range pkc.Resource.Ingresses {
+		for _, rules := range ing.Spec.Rules {
+			hostMap[rules.Host] = v
+		}
+	}
+	fmt.Println("hostMap: ", hostMap)
+	hosts := []string{}
+	for k := range hostMap {
+		hosts = append(hosts, k)
+	}
+	fmt.Println("hosts:", hosts)
+
+	err = tmpl.Execute(&buf, pkset{C: *pkc, S: pkc.Resource.IngressControllerService, Hs: hosts})
 	if err != nil {
 		log.Println(err)
 		return []byte{}
