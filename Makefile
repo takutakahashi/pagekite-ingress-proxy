@@ -8,3 +8,5 @@ run:
 build-docker:
 	docker build -t takutakahashi/pagekite-ingress-proxy .
 	docker push takutakahashi/pagekite-ingress-proxy
+prepare:
+	GO111MODULE=on go mod download
