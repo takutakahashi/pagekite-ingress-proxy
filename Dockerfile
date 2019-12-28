@@ -4,9 +4,9 @@ WORKDIR /src
 RUN make prepare
 RUN make build
 
-FROM alpine
+FROM python:2.7
 
-RUN apk add curl bind-tools python
+RUN apt update && apt install -y curl
 RUN curl -s https://pagekite.net/pk/ |sh
 COPY --from=build /src/dist/pk-ingress-controller /
 COPY --from=build /src/src/template/pagekite.rc.tmpl /src/template/pagekite.rc.tmpl
