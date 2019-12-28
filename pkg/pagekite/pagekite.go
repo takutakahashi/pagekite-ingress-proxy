@@ -12,9 +12,9 @@ import (
 
 	"github.com/takutakahashi/pagekite-ingress-controller/pkg/pagekite/types"
 	v1 "k8s.io/api/core/v1"
+	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	ccorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -22,9 +22,15 @@ import (
 
 type PageKite struct {
 	Config types.PageKiteConfig
-	Client ccorev1.ServiceInterface
+	Client *kubernetes.Clientset
 	Stop   chan struct{}
 	Reload chan struct{}
+}
+
+func handle(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func NewPageKite() PageKite {
@@ -40,25 +46,28 @@ func NewPageKite() PageKite {
 	controllerService := *flag.String("ingress-controller-service-name", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "ingress svc")
 	flag.Parse()
 
-	// use the current context in kubeconfig
 	config, err := rest.InClusterConfig()
 	if config == nil {
 		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
-		if err != nil {
-			panic(err)
-		}
+		handle(err)
 	}
 	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err)
-	}
+	handle(err)
+	ings, err := clientset.ExtensionsV1beta1().Ingresses("").List(metav1.ListOptions{})
+	fmt.Println(ings)
+	handle(err)
+	svc, err := clientset.CoreV1().Services(namespace).Get(controllerService, metav1.GetOptions{})
+	handle(err)
 	pk := PageKite{
 		Config: types.PageKiteConfig{
-			Name:                  kitename,
-			Secret:                kitesecret,
-			ControllerServiceName: controllerService,
+			Name:   kitename,
+			Secret: kitesecret,
+			Resource: types.PageKiteResource{
+				Ingresses:                ings.Items,
+				IngressControllerService: *svc,
+			},
 		},
-		Client: clientset.CoreV1().Services(namespace),
+		Client: clientset,
 		Stop:   make(chan struct{}),
 		Reload: make(chan struct{}),
 	}
@@ -84,25 +93,60 @@ func (pk *PageKite) generateConfig() bool {
 }
 
 func (pk *PageKite) startObserver() error {
-	svcStreamWatcher, err := pk.Client.Watch(metav1.ListOptions{})
+	// TODO: observe svc and ing
+	go pk.watchIngress()
+	go pk.watchService()
+	<-pk.Stop
+	return nil
+}
+
+func (pk *PageKite) watchService() {
+	ns := pk.Config.Resource.IngressControllerService.Namespace
+	streamWatcher, err := pk.Client.CoreV1().Services(ns).Watch(metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
 	for {
 		select {
-		case event := <-svcStreamWatcher.ResultChan():
+		case event := <-streamWatcher.ResultChan():
 			svc := event.Object.(*v1.Service)
-			if svc.Name == pk.Config.ControllerServiceName {
-				pk.update(svc)
+			if svc.Name == pk.Config.Resource.IngressControllerService.Name {
+				pk.update(svc, nil)
 			}
 		}
 	}
-	return nil
+
 }
 
-func (pk *PageKite) update(svc *v1.Service) {
-	pk.Config.ControllerService = *svc
+func (pk *PageKite) watchIngress() {
+	ns := ""
+	ingressClient := pk.Client.ExtensionsV1beta1().Ingresses(ns)
+	streamWatcher, err := ingressClient.Watch(metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	for {
+		select {
+		case <-streamWatcher.ResultChan():
+			res, err := ingressClient.List(metav1.ListOptions{})
+			if err != nil {
+				panic(err.Error())
+			}
+			pk.update(nil, res.Items)
+		}
+	}
+
+}
+
+func (pk *PageKite) update(svc *v1.Service, ingresses []extv1beta1.Ingress) {
+	if svc != nil {
+		pk.Config.Resource.IngressControllerService = *svc
+	}
+	if ingresses != nil {
+		pk.Config.Resource.Ingresses = ingresses
+	}
 	hasDiff := pk.generateConfig()
+	fmt.Println("diff? ", hasDiff)
 	if hasDiff {
 		pk.reloadProcess()
 	}
