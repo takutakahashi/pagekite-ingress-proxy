@@ -8,24 +8,24 @@ defaults
 {{- $s := .S }}
 {{- $hs := .Hs }}
 {{- range $index, $port := .S.Spec.Ports }}
-{{- if eq $port.TargetPort.StrVal "http" }}
-service_on  = http:@kitename                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:80    : @kitesecret
+
+{{- $proto := "" }}
+{{- if eq $port.Port 80 }}
+{{- $proto = "http" }}
+{{- else if eq $port.Port 443 }}
+{{- $proto = "https" }}
+{{- end }}
+
+{{- $targetPort := $port.Port }}
+
+### kite
+service_on  = {{ $proto }}:@kitename                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:{{ $targetPort }}    : @kitesecret
+
+### CNAME
 {{- range $host := $hs }}
-service_on  = http:{{ $host }}                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:80    : @kitesecret
+service_on  = {{ $proto }}:{{ $host }}                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:{{ $targetPort }}    : @kitesecret
 {{- end }}
-{{- end }}
-{{- if eq $port.TargetPort.StrVal "https" }}
-service_on  = https:@kitename                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:443    : @kitesecret
-{{- range $host := $hs }}
-service_on  = https:{{ $host }}                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:443    : @kitesecret
-{{- end }}
-{{- end }}
-{{- if not $port.TargetPort.StrVal }}
-service_on  = raw/{{ $port.TargetPort.IntVal }}:@kitename                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:{{ $port.TargetPort.IntVal }}    : @kitesecret
-{{- range $host := $hs }}
-service_on  = raw/{{ $port.TargetPort.IntVal }}:{{ $host }}                   : {{ $s.Name }}.{{ $s.Namespace }}.svc.cluster.local:{{ $port.TargetPort.IntVal }}    : @kitesecret
-{{- end }}
-{{- end }}
+
 {{- end }}
 ##[ Miscellaneous settings ]##
 savefile = /root/.pagekite.rc

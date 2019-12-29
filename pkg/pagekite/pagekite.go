@@ -54,7 +54,6 @@ func NewPageKite() PageKite {
 	clientset, err := kubernetes.NewForConfig(config)
 	handle(err)
 	ings, err := clientset.ExtensionsV1beta1().Ingresses("").List(metav1.ListOptions{})
-	fmt.Println(ings)
 	handle(err)
 	svc, err := clientset.CoreV1().Services(namespace).Get(controllerService, metav1.GetOptions{})
 	handle(err)
@@ -93,7 +92,6 @@ func (pk *PageKite) generateConfig() bool {
 }
 
 func (pk *PageKite) startObserver() error {
-	// TODO: observe svc and ing
 	go pk.watchIngress()
 	go pk.watchService()
 	<-pk.Stop
@@ -165,8 +163,8 @@ func (pk *PageKite) reloadProcess() {
 		process.Kill()
 	}
 	cmd := exec.Command("pagekite.py")
-	out, err := cmd.Output()
-	fmt.Println(out)
+	_, err = cmd.Output()
+	handle(err)
 	pid := cmd.Process.Pid
 	f, err := os.Create("/tmp/pagekite.pid")
 	if err != nil {
