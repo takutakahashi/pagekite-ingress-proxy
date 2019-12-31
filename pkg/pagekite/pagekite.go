@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/takutakahashi/pagekite-ingress-controller/pkg/pagekite/types"
 	v1 "k8s.io/api/core/v1"
@@ -21,10 +23,11 @@ import (
 )
 
 type PageKite struct {
-	Config types.PageKiteConfig
-	Client *kubernetes.Clientset
-	Stop   chan struct{}
-	Reload chan struct{}
+	Config          types.PageKiteConfig
+	Client          *kubernetes.Clientset
+	HealthcheckPath string
+	Stop            chan struct{}
+	Reload          chan struct{}
 }
 
 func handle(err error) {
@@ -40,6 +43,7 @@ func NewPageKite() PageKite {
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
+	healthcheckPath := *flag.String("heealthcheck-path", "/healthz", "heal check path")
 	namespace := *flag.String("namespace", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "specify target namespace to watch resource")
 	kitename := *flag.String("kitename", os.Getenv("PAGEKITE_NAME"), "kitename")
 	kitesecret := *flag.String("kitesecret", os.Getenv("PAGEKITE_SECRET"), "kitesecret")
@@ -66,9 +70,10 @@ func NewPageKite() PageKite {
 				IngressControllerService: *svc,
 			},
 		},
-		Client: clientset,
-		Stop:   make(chan struct{}),
-		Reload: make(chan struct{}),
+		Client:          clientset,
+		HealthcheckPath: healthcheckPath,
+		Stop:            make(chan struct{}),
+		Reload:          make(chan struct{}),
 	}
 	return pk
 }
@@ -91,9 +96,30 @@ func (pk *PageKite) generateConfig() bool {
 
 }
 
+func (pk *PageKite) healthcheck() {
+	url := "http://" + pk.Config.Name + pk.HealthcheckPath
+	reload := false
+	for {
+		resp, err := http.Get(url)
+		if err != nil {
+			reload = true
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			reload = true
+		}
+		if reload {
+			fmt.Println("heealthcheck failed. reload process.")
+			pk.reloadProcess()
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
 func (pk *PageKite) startObserver() error {
 	go pk.watchIngress()
 	go pk.watchService()
+	go pk.healthcheck()
 	<-pk.Stop
 	return nil
 }
