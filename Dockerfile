@@ -1,7 +1,6 @@
 FROM golang:1.13.4 AS build
 COPY . /src
 WORKDIR /src
-RUN make prepare
 RUN make build
 
 FROM python:2.7
