@@ -167,15 +167,10 @@ func (pk *PageKite) reloadProcess() {
 	handle(err)
 	pid := cmd.Process.Pid
 	f, err := os.Create("/tmp/pagekite.pid")
-	if err != nil {
-		fmt.Printf("error creating file: %v", err)
-		return
-	}
+	handle(err)
 	defer f.Close()
 	_, err = f.WriteString(fmt.Sprintf("%d\n", pid))
-	if err != nil {
-		fmt.Printf("error writing string: %v", err)
-	}
+	handle(err)
 }
 
 func homeDir() string {
