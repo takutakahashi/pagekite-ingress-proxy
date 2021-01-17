@@ -2,24 +2,24 @@ package pagekite
 
 import (
 	"bytes"
-	"encoding/binary"
+	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/go-cmd/cmd"
+	"github.com/prometheus/common/log"
 	"github.com/takutakahashi/pagekite-ingress-controller/pkg/pagekite/types"
 	v1 "k8s.io/api/core/v1"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
+	networkingv1beta1 "k8s.io/api/networking/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 type PageKite struct {
@@ -30,37 +30,27 @@ type PageKite struct {
 	Reload          chan struct{}
 }
 
-func handle(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
 func NewPageKite() PageKite {
-	var kubeconfig *string
-	if home := homeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
-	}
+
 	healthcheckPath := *flag.String("heealthcheck-path", "/healthz", "heal check path")
-	namespace := *flag.String("namespace", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "specify target namespace to watch resource")
+	namespace := *flag.String("namespace", os.Getenv("INGRESS_CONTROLLER_SERVICE_NAMESPACE"), "ingress svc namespace")
 	kitename := *flag.String("kitename", os.Getenv("PAGEKITE_NAME"), "kitename")
 	kitesecret := *flag.String("kitesecret", os.Getenv("PAGEKITE_SECRET"), "kitesecret")
 	controllerService := *flag.String("ingress-controller-service-name", os.Getenv("INGRESS_CONTROLLER_SERVICE"), "ingress svc")
 	flag.Parse()
-
-	config, err := rest.InClusterConfig()
-	if config == nil {
-		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
-		handle(err)
-	}
+	config := ctrl.GetConfigOrDie()
 	clientset, err := kubernetes.NewForConfig(config)
-	handle(err)
-	ings, err := clientset.ExtensionsV1beta1().Ingresses("").List(metav1.ListOptions{})
-	handle(err)
-	svc, err := clientset.CoreV1().Services(namespace).Get(controllerService, metav1.GetOptions{})
-	handle(err)
+	if err != nil {
+		log.Error(err)
+	}
+	ings, err := clientset.NetworkingV1beta1().Ingresses("").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		log.Error(err)
+	}
+	svc, err := clientset.CoreV1().Services(namespace).Get(context.TODO(), controllerService, metav1.GetOptions{})
+	if err != nil {
+		log.Error(err)
+	}
 	pk := PageKite{
 		Config: types.PageKiteConfig{
 			Name:   kitename,
@@ -97,18 +87,10 @@ func (pk *PageKite) generateConfig() bool {
 }
 
 func (pk *PageKite) healthcheck() {
-	url := "http://" + pk.Config.Name + pk.HealthcheckPath
-	reload := false
 	for {
-		resp, err := http.Get(url)
+		hcmd := exec.Command("bash", "-c", "netstat -anp |grep python")
+		_, err := hcmd.Output()
 		if err != nil {
-			reload = true
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			reload = true
-		}
-		if reload {
 			fmt.Println("heealthcheck failed. reload process.")
 			pk.reloadProcess()
 		}
@@ -118,7 +100,7 @@ func (pk *PageKite) healthcheck() {
 
 func (pk *PageKite) startObserver() error {
 	go pk.watchIngress()
-	go pk.watchService()
+	// go pk.watchService()
 	go pk.healthcheck()
 	<-pk.Stop
 	return nil
@@ -126,7 +108,7 @@ func (pk *PageKite) startObserver() error {
 
 func (pk *PageKite) watchService() {
 	ns := pk.Config.Resource.IngressControllerService.Namespace
-	streamWatcher, err := pk.Client.CoreV1().Services(ns).Watch(metav1.ListOptions{})
+	streamWatcher, err := pk.Client.CoreV1().Services(ns).Watch(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -144,15 +126,16 @@ func (pk *PageKite) watchService() {
 
 func (pk *PageKite) watchIngress() {
 	ns := ""
-	ingressClient := pk.Client.ExtensionsV1beta1().Ingresses(ns)
-	streamWatcher, err := ingressClient.Watch(metav1.ListOptions{})
+	ingressClient := pk.Client.NetworkingV1beta1().Ingresses(ns)
+	streamWatcher, err := ingressClient.Watch(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		panic(err.Error())
+		log.Error(err)
+		return
 	}
 	for {
 		select {
 		case <-streamWatcher.ResultChan():
-			res, err := ingressClient.List(metav1.ListOptions{})
+			res, err := ingressClient.List(context.TODO(), metav1.ListOptions{})
 			if err != nil {
 				panic(err.Error())
 			}
@@ -162,7 +145,7 @@ func (pk *PageKite) watchIngress() {
 
 }
 
-func (pk *PageKite) update(svc *v1.Service, ingresses []extv1beta1.Ingress) {
+func (pk *PageKite) update(svc *v1.Service, ingresses []networkingv1beta1.Ingress) {
 	if svc != nil {
 		pk.Config.Resource.IngressControllerService = *svc
 	}
@@ -177,31 +160,8 @@ func (pk *PageKite) update(svc *v1.Service, ingresses []extv1beta1.Ingress) {
 }
 
 func (pk *PageKite) reloadProcess() {
-	buf, err := ioutil.ReadFile("/tmp/pagekite.pid")
-	if err == nil {
-		var pid int
-		r := bytes.NewReader(buf)
-		binary.Read(r, binary.LittleEndian, &pid)
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			fmt.Println(err)
-		}
-		process.Kill()
-	}
-	cmd := exec.Command("pagekite.py")
-	_, err = cmd.Output()
-	handle(err)
-	pid := cmd.Process.Pid
-	f, err := os.Create("/tmp/pagekite.pid")
-	handle(err)
-	defer f.Close()
-	_, err = f.WriteString(fmt.Sprintf("%d\n", pid))
-	handle(err)
-}
-
-func homeDir() string {
-	if h := os.Getenv("HOME"); h != "" {
-		return h
-	}
-	return os.Getenv("USERPROFILE") // windows
+	k := exec.Command("killall", "pagekite.py")
+	k.Output()
+	c := cmd.NewCmd("pagekite.py")
+	c.Start()
 }

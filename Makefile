@@ -6,5 +6,5 @@ run:
 	dist/pk-ingress-controller -namespace=nginx-ingress -ingress-controller-service-name nginx-ingress-controller
 
 build-docker:
-	docker build -t takutakahashi/pagekite-ingress-proxy .
-	docker push takutakahashi/pagekite-ingress-proxy
+	docker build -t takutakahashi/pagekite-ingress-proxy:test .
+	docker push takutakahashi/pagekite-ingress-proxy:test

@@ -7,7 +7,7 @@ import (
 
 	"github.com/leekchan/gtf"
 	v1 "k8s.io/api/core/v1"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
+	networkingv1beta1 "k8s.io/api/networking/v1beta1"
 )
 
 type PageKiteConfig struct {
@@ -19,7 +19,7 @@ type PageKiteConfig struct {
 
 type PageKiteResource struct {
 	IngressControllerService v1.Service
-	Ingresses                []extv1beta1.Ingress
+	Ingresses                []networkingv1beta1.Ingress
 }
 
 func (pkc *PageKiteConfig) GenerateConfig() []byte {
