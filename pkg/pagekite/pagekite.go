@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"time"
+	"sort"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -159,6 +160,7 @@ func (pk *PageKite) update(svc *v1.Service, ingresses []networkingv1beta1.Ingres
 	if ingresses != nil {
 		pk.Config.Resource.Ingresses = ingresses
 	}
+	sort.Slice(ingresses, func(i, j int) bool { return ingresses[i].Name < ingresses[j].Name })
 	hasDiff := pk.generateConfig()
 	fmt.Println("diff? ", hasDiff)
 	if hasDiff {
