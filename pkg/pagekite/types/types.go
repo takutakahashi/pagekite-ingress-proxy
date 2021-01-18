@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"sort"
 
 	"github.com/leekchan/gtf"
 	v1 "k8s.io/api/core/v1"
@@ -46,8 +47,8 @@ func (pkc *PageKiteConfig) GenerateConfig() []byte {
 	for k := range hostMap {
 		hosts = append(hosts, k)
 	}
+	sort.Slice(hosts, func(i, j int) bool { return hosts[i] < hosts[j] })
 	fmt.Println("hosts:", hosts)
-
 	err = tmpl.Execute(&buf, pkset{C: *pkc, S: pkc.Resource.IngressControllerService, Hs: hosts})
 	if err != nil {
 		log.Println(err)
