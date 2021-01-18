@@ -1,6 +1,6 @@
 module github.com/takutakahashi/pagekite-ingress-controller
 
-go 1.13
+go 1.15
 
 require (
 	github.com/go-cmd/cmd v1.3.0
