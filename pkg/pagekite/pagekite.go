@@ -98,6 +98,13 @@ func (pk *PageKite) healthcheck() {
 	}
 }
 
+func (pk *PageKite) health() bool {
+	hcmd := exec.Command("bash", "-c", "netstat -anp |grep python")
+	_, err := hcmd.Output()
+	return err == nil
+
+}
+
 func (pk *PageKite) startObserver() error {
 	go pk.watchIngress()
 	// go pk.watchService()
@@ -164,4 +171,10 @@ func (pk *PageKite) reloadProcess() {
 	k.Output()
 	c := cmd.NewCmd("pagekite.py")
 	c.Start()
+	for {
+		if pk.health() {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
